@@ -159,48 +159,104 @@ def _first_dozent(raw_words: list[str]) -> tuple[str, str]:
     return nachname, vorname
 
 
+def _detect_row_boundaries(words: list, table_top: float,
+                            gap_threshold: float = 4.0) -> list[float] | None:
+    """
+    Detect row separator y-positions from gaps in the Lehrinhalte column.
+    Returns a sorted list of y-midpoints of gaps, or None if no gaps found
+    (fall back to stunde-midpoint method).
+    """
+    lh = sorted(
+        [w for w in words
+         if COL_LEHRINHALTE[0] <= w["x0"] < COL_LEHRINHALTE[1]
+         and w["top"] > table_top
+         and w["text"] not in HEADER_NOISE],
+        key=lambda w: w["top"],
+    )
+    gaps = []
+    for i in range(1, len(lh)):
+        gap = lh[i]["top"] - lh[i - 1]["bottom"]
+        if gap > gap_threshold:
+            mid = (lh[i - 1]["bottom"] + lh[i]["top"]) / 2
+            gaps.append(mid)
+    return gaps if gaps else None
+
+
 def parse_rows_from_page(page) -> list[dict]:
     """
-    Extract all 9 (or however many) lesson rows from a Themendokumentation page.
+    Extract all lesson rows from a Themendokumentation page.
     Returns list of {stunde, inhalt, dozent_vorname, dozent_nachname}.
+
+    Row boundaries are determined by visible gaps between cell content in the
+    Lehrinhalte column (reliable for dense multi-line cells).  Falls back to
+    stunde-number midpoints when no gaps are found (sparse PDFs).
     """
     words = page.extract_words(x_tolerance=3, y_tolerance=3)
 
     # ── Locate stunde numbers 1-9 ──────────────────────────────────────────
-    stunden = sorted(
-        [
-            (int(w["text"]), w["top"])
-            for w in words
-            if w["text"].isdigit()
-            and 1 <= int(w["text"]) <= 9
-            and COL_STUNDE[0] <= w["x0"] < COL_STUNDE[1]
-        ],
-        key=lambda x: x[0],
-    )
-    if not stunden:
+    raw_stunden = [
+        (int(w["text"]), w["top"])
+        for w in words
+        if w["text"].isdigit()
+        and 1 <= int(w["text"]) <= 9
+        and COL_STUNDE[0] <= w["x0"] < COL_STUNDE[1]
+    ]
+    if not raw_stunden:
         raise ValueError("No stunde numbers (1-9) found in Stunde column")
 
-    # ── Deduplicate: keep only the first occurrence of each number ─────────
-    seen = set()
-    stunden_dedup = []
-    for nr, top in stunden:
+    # Deduplicate — keep first (topmost) occurrence of each number
+    seen: set = set()
+    stunden: list = []
+    for nr, top in sorted(raw_stunden, key=lambda x: x[1]):
         if nr not in seen:
             seen.add(nr)
-            stunden_dedup.append((nr, top))
-    stunden = stunden_dedup
+            stunden.append((nr, top))
 
-    # ── Approximate bottom of the table ───────────────────────────────────
-    table_bottom = max(
-        (w["bottom"] for w in words if w["bottom"] < 650),
-        default=600,
-    )
+    # Estimate where the table header ends (just above the first stunde number)
+    table_top = min(t for _, t in stunden) - 35
 
-    # ── Build y-ranges using midpoints ────────────────────────────────────
-    boundaries = []
-    for i, (nr, top) in enumerate(stunden):
-        y_start = (stunden[i - 1][1] + top) / 2 if i > 0 else top - 30
-        y_end   = (top + stunden[i + 1][1]) / 2  if i + 1 < len(stunden) else table_bottom
-        boundaries.append((nr, y_start, y_end))
+    # ── Preferred: gap-based row boundaries ───────────────────────────────
+    gap_separators = _detect_row_boundaries(words, table_top)
+
+    if gap_separators:
+        # Build row ranges from detected gaps
+        # Clip separators that are past the table (signature line, footer)
+        last_stunde_top = max(t for _, t in stunden)
+        # Anything more than ~90pt below the last stunde is footer territory
+        max_sep = last_stunde_top + 90
+        separators = [g for g in gap_separators if g <= max_sep]
+
+        # Row N spans from separators[N-1] to separators[N]
+        row_ranges = []
+        bounds = [table_top] + separators + [last_stunde_top + 90]
+        for i in range(len(bounds) - 1):
+            row_ranges.append((bounds[i], bounds[i + 1]))
+
+        # Match each stunde number to the row range it falls in
+        matched: list[tuple] = []
+        for nr, s_top in stunden:
+            for y0, y1 in row_ranges:
+                if y0 - 5 <= s_top <= y1 + 5:
+                    matched.append((nr, y0, y1))
+                    break
+
+        # If matching failed for some stunden, fall back to midpoints below
+        if len(matched) == len(stunden):
+            boundaries = matched
+        else:
+            gap_separators = None  # trigger fallback
+
+    # ── Fallback: midpoint between consecutive stunde numbers ─────────────
+    if not gap_separators:
+        table_bottom = max(
+            (w["bottom"] for w in words if w["bottom"] < 700),
+            default=600,
+        )
+        boundaries = []
+        for i, (nr, top) in enumerate(stunden):
+            y_start = (stunden[i - 1][1] + top) / 2 if i > 0 else top - 30
+            y_end   = (top + stunden[i + 1][1]) / 2  if i + 1 < len(stunden)                       else table_bottom
+            boundaries.append((nr, y_start, y_end))
 
     # ── Extract content for each row ──────────────────────────────────────
     rows = []
@@ -208,9 +264,7 @@ def parse_rows_from_page(page) -> list[dict]:
         inhalt_words = _words_in_col(words, COL_LEHRINHALTE[0], COL_LEHRINHALTE[1], y0, y1)
         dozent_words = _words_in_col(words, COL_DOZENT[0],      COL_DOZENT[1],      y0, y1)
 
-        # Remove header-row noise
         inhalt_words = [w for w in inhalt_words if w not in HEADER_NOISE]
-
         nachname, vorname = _first_dozent(dozent_words)
 
         rows.append({
@@ -229,12 +283,27 @@ def parse_rows_from_page(page) -> list[dict]:
 
 def extract_pdf(pdf_path: str) -> dict:
     with pdfplumber.open(pdf_path) as pdf:
-        page = pdf.pages[0]
-        text = page.extract_text() or ""
-        return {
-            "header": parse_header(text),
-            "rows":   parse_rows_from_page(page),
-        }
+        # Header is always on page 1
+        text = pdf.pages[0].extract_text() or ""
+        header = parse_header(text)
+
+        # Collect rows across ALL pages (some PDFs overflow to page 2+)
+        # Track which stunde numbers have already been found so continuation
+        # pages (which repeat header/footer but no new stunden) are skipped cleanly.
+        seen_stunden = set()
+        all_rows = []
+        for page in pdf.pages:
+            try:
+                rows = parse_rows_from_page(page)
+            except ValueError:
+                continue  # page has no stunde numbers at all (e.g. pure footer page)
+            for row in rows:
+                if row["stunde"] not in seen_stunden:
+                    seen_stunden.add(row["stunde"])
+                    all_rows.append(row)
+
+        all_rows.sort(key=lambda r: r["stunde"])
+        return {"header": header, "rows": all_rows}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
