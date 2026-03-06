@@ -132,6 +132,55 @@ def _words_in_col(words: list, x0: float, x1: float,
     ]
 
 
+def _words_in_col_with_pos(words: list, x0: float, x1: float,
+                            y0: float, y1: float) -> list[dict]:
+    """Like _words_in_col but returns full word dicts (with 'top' for line detection)."""
+    return [
+        w for w in words
+        if x0 <= w["x0"] < x1 and y0 <= w["top"] < y1
+    ]
+
+
+def _join_inhalt(word_dicts: list[dict]) -> str:
+    """
+    Join word dicts into a string, inserting '; ' at line breaks.
+    Words whose 'top' differs by more than half the typical line height
+    are considered to be on a new line.
+    Hyphenated line-wraps (e.g. 'IT-\\nSicherheit') are re-joined without separator.
+    """
+    if not word_dicts:
+        return ""
+    tops = [w["top"] for w in word_dicts]
+    gaps = [tops[i+1] - tops[i] for i in range(len(tops)-1) if tops[i+1] - tops[i] > 0]
+    line_height = sorted(gaps)[len(gaps)//2] if gaps else 8.0
+    threshold = line_height * 0.6
+
+    # Group words into lines
+    lines: list[list[str]] = []
+    current: list[str] = [word_dicts[0]["text"]]
+    prev_top = word_dicts[0]["top"]
+    for w in word_dicts[1:]:
+        if w["top"] - prev_top > threshold:
+            lines.append(current)
+            current = [w["text"]]
+        else:
+            current.append(w["text"])
+        prev_top = w["top"]
+    lines.append(current)
+
+    # Join lines: use "; " normally, but re-attach hyphenated continuations
+    parts: list[str] = [" ".join(lines[0])]
+    for line in lines[1:]:
+        line_text = " ".join(line)
+        if parts[-1].endswith("-"):
+            # Re-join hyphen-wrapped word: strip trailing hyphen, no separator
+            parts[-1] = parts[-1] + line_text
+        else:
+            parts.append(line_text)
+
+    return "; ".join(p for p in parts if p)
+
+
 def _first_dozent(raw_words: list[str]) -> tuple[str, str]:
     """
     Extract the first 'Nachname, Vorname' pair from a list of words.
@@ -262,15 +311,15 @@ def parse_rows_from_page(page) -> list[dict]:
     # ── Extract content for each row ──────────────────────────────────────
     rows = []
     for nr, y0, y1 in boundaries:
-        inhalt_words = _words_in_col(words, COL_LEHRINHALTE[0], COL_LEHRINHALTE[1], y0, y1)
+        inhalt_dicts = _words_in_col_with_pos(words, COL_LEHRINHALTE[0], COL_LEHRINHALTE[1], y0, y1)
         dozent_words = _words_in_col(words, COL_DOZENT[0],      COL_DOZENT[1],      y0, y1)
 
-        inhalt_words = [w for w in inhalt_words if w not in HEADER_NOISE]
+        inhalt_dicts = [w for w in inhalt_dicts if w["text"] not in HEADER_NOISE]
         nachname, vorname = _first_dozent(dozent_words)
 
         rows.append({
             "stunde":          nr,
-            "inhalt":          " ".join(inhalt_words),
+            "inhalt":          _join_inhalt(inhalt_dicts),
             "dozent_vorname":  vorname,
             "dozent_nachname": nachname,
         })
