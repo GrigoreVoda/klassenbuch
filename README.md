@@ -6,7 +6,7 @@ Dieses Projekt extrahiert Daten aus digitalen Klassenbüchern (PDF), speichert d
 
 * **Python:** Version 3.8 oder neuer
 * **Datenbank:** PostgreSQL
-* **Python-Bibliotheken:** Die benötigten Pakete sind in der `requirements.txt` zusammengefasst.
+* **Python-Bibliotheken:** Die benötigten Pakete .
 
 ## 📂 Projektstruktur
 
