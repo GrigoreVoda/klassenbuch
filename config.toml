@@ -30,7 +30,7 @@ password = ""           # leave empty to be prompted at runtime
 [pdfs]
 paths   = []            # directories to scan (recursively)
 files   = []            # individual PDF files
-pattern = "MI-*.pdf"    # glob pattern used when scanning directories
+pattern = "*.pdf"    # glob pattern used when scanning directories
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Behaviour / mode defaults
