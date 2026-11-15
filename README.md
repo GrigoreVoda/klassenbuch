@@ -1,119 +1,179 @@
-# Klassenbuch PDF zu SQL & Excel
+# Klassenbuch
 
-Dieses Projekt extrahiert Daten aus digitalen Klassenbüchern (PDF), speichert diese strukturiert in einer SQL-Datenbank (PostgreSQL) und exportiert sie anschließend in eine Excel-Vorlage (Berichtsheft).
+Es liest die PDFs, legt die Inhalte in einer PostgreSQL-Datenbank ab und 
+füllt danach die Excel-Vorlage für das Berichtsheft aus. Pro Kalenderwoche
+entsteht eine fertige Excel-Datei.
 
-## Voraussetzungen
+Das Projekt besteht aus drei kleinen Python-Skripten, die man nacheinander
+startet. Wie das geht, steht weiter unten.
 
-* **Python:** Version 3.8 oder neuer
-* **Datenbank:** PostgreSQL
-* **Python-Bibliotheken:** Die benötigten Pakete .
+## Was man braucht
 
-## Projektstruktur
+Python ab Version 3.11. Mit älteren Versionen startet das Skript nicht,
+weil es das Modul `tomllib` benutzt.
 
-* **`klassenbuch_pdf_parsing.py`**: Skript zum Auslesen der Texte/Daten aus den Klassenbuch-PDFs.
-* **`pdf_sort_by_date.py`**: Hilfsskript, um die PDFs chronologisch zu sortieren.
-* **`init_db.sql.txt`**: SQL-Befehle zur Initialisierung der Tabellenstruktur in der Datenbank.
-* **`sql_in_excel_export.py`**: Skript, das die gespeicherten Daten aus der SQL-Datenbank holt und in die Excel-Datei schreibt.
-* **`berichtsheft_template.xlsx`**: Die Excel-Vorlage, die für den Export als Berichtsheft genutzt wird.
-* **`config.toml`**: Konfigurationsdatei für Pfade, Datenbankverbindungen oder spezifische Einstellungen.
+Eine PostgreSQL-Datenbank. Bei mir läuft sie auf dem gleichen Rechner.
 
-## Einrichtung und Installation
+Die PDFs. Sie müssen das Format der GFN-Themendokumentation haben, also
+oben Datum und Titel und darunter die Tabelle mit Stunde, Lehrinhalte,
+Lernformat und Dozent.
 
-1. **Repository klonen:**
+## Einrichten
+
+Das hier macht man nur einmal.
+
+Zuerst das Projekt herunterladen:
+
 ```
-   git clone [https://github.com/GrigoreVoda/klassenbuch.git](https://github.com/GrigoreVoda/klassenbuch.git)
-   cd klassenbuch
+git clone https://github.com/GrigoreVoda/klassenbuch.git
+cd klassenbuch
 ```
 
-2. **Virtuelle Umgebung erstellen und aktivieren**
+Dann eine eigene Python-Umgebung anlegen und die Pakete installieren:
+
 ```
 python -m venv .venv
-
-# Linux / macOS
-source .venv/bin/activate
-
-# Windows
 .venv\Scripts\activate
-```
-3. **Abhängigkeiten installieren**
-```
 pip install -r requirements.txt
 ```
 
-4. **PostgreSQL-Datenbank initialisieren**
+Unter Linux oder macOS heißt die zweite Zeile `source .venv/bin/activate`.
+
+Jetzt die Datenbank. In `psql` oder pgAdmin eine Datenbank anlegen:
+
 ```
-# Mit PostgreSQL verbinden und ausführen:
 CREATE DATABASE klassenbuch;
-\c klassenbuch;
--- Dann den Inhalt von init_db.sql.txt einfügen
+```
+
+Danach in diese Datenbank wechseln( \c klassenbuch; )und den ganzen Inhalt der Datei
+`init_db.sql.txt` ausführen. Damit entstehen fünf Tabellen: `lernfeld`,
+`dozent`, `lernfeld_dozent`, `lerntag` und `unterrichtseinheit`.
+
+Zum Schluss die Datei `config.toml` öffnen und zwei Stellen ausfüllen.
+Die Zugangsdaten zur Datenbank:
 
 ```
-5. **Projekt konfigurieren.**
-Öffnen Sie die Datei config.toml und tragen Sie Ihre Einstellungen ein:
-```
-paths = ["pfad/zu/deinem/pdf/ordner"]
-
 [database]
-host     = "localhost" 
+host     = "localhost"
 port     = 5432
 name     = "klassenbuch"
 user     = "postgres"
 password = "deinpasswort"
 ```
 
-## Nutzung
+Und den Ordner, in dem die PDFs liegen:
 
-**Schritt 1: PDFs sortieren (Optional)**
-Um die PDFs vorzubereiten und chronologisch zu ordnen:
-```bash
-python pdf_sort_by_date.py
+```
+[pdfs]
+paths = ['C:\Users\Ich\Dokumente\Klassenbuch']
 ```
 
-**Schritt 2: Konfiguration ausfüllen**
-Öffne die Datei `config.toml` und trage den Pfad zu dem Ordner mit den PDF-Dateien ein:
-```toml
-paths = ["pfad/zum/ordner/mit/pdf/files"]
+Achtung bei Windows-Pfaden: Der Pfad muss in einfachen Anführungszeichen
+stehen. Mit doppelten Anführungszeichen bricht das Programm mit der Meldung
+`Invalid hex value` ab, weil es den Backslash falsch versteht. Man kann auch
+mehrere Ordner eintragen, getrennt mit Komma. Unterordner werden mit
+durchsucht.
+
+
+## Benutzen
+
+### PDFs sortieren
+
+Das ist freiwillig. Die PDFs heißen zum Beispiel
+`XX-YYY.JAN_VEACFZZL_29062026_29062026134500.pdf`. Das Datum steht in der
+Mitte, deshalb liegen sie im Ordner durcheinander. Das Skript setzt das
+Datum nach vorne:
+
+```
+python pdf_sort_by_date.py C:\Users\Ich\Dokumente\Klassenbuch
 ```
 
-**Schritt 3: PDFs parsen und in SQL speichern**
-Führe das Parsing-Skript aus, um die Daten in die SQL-Datenbank zu schreiben. Zum Testen kannst du das Flag `--dry-run` anhängen:
-```bash
-# Testlauf (keine Schreibvorgänge in die DB – erst testen):
+Danach heißt die Datei `20260629_MI-YYY.XX_VEACFZZL_29062026_29062026134500.pdf`
+und der Ordner ist nach Datum sortiert. Wer erst sehen will, was passieren
+würde, hängt `--dry-run` an. Dann wird nichts umbenannt.
+
+Das Skript nur einmal pro Datei laufen lassen. Bei einem zweiten Lauf
+bekommen schon umbenannte Dateien das Datum noch einmal davor.
+
+### PDFs einlesen
+
+Ich starte immer zuerst einen Testlauf:
+
+```
 python klassenbuch_pdf_parsing.py --dry-run
+```
 
-# Vollständiger Durchlauf:
+Der Testlauf liest alle PDFs und zeigt die SQL-Befehle an, schreibt aber
+nichts in die Datenbank. So sieht man sofort, ob eine PDF Probleme macht.
+Wenn alles passt, kommt der echte Lauf:
+
+```
 python klassenbuch_pdf_parsing.py
 ```
 
-**Schritt 4: Berichtsheft generieren**
-Führe dieses Skript aus, um das finale Berichtsheft aus der SQL-Datenbank zu generieren:
-```bash
+Die Ausgabe sieht dann ungefähr so aus:
+
+```
+Config: C:\...\klassenbuch\config.toml
+PDFs from config: 25 file(s)
+Processing: 20260629_MI-YYY.XX_VEACFZZL_29062026_29062026134500.pdf
+  ✓ 12 rows affected.
+```
+
+Aus jeder PDF kommt ein Lerntag mit neun Unterrichtseinheiten. Steht der
+Inhalt einer Stunde in mehreren Zeilen, werden die Zeilen mit einem
+Semikolon verbunden, zum Beispiel `Vorgehensmodelle; Scrum; Wasserfallmodell`.
+
+Man kann das Skript so oft starten, wie man will. Tage, die schon in der
+Datenbank stehen, werden übersprungen. Ich lasse deshalb einfach alle PDFs
+im Ordner liegen und starte das Skript, wenn neue dazugekommen sind.
+
+Soll nur eine einzelne Datei eingelesen werden, schreibt man sie hinter den
+Befehl: `python klassenbuch_pdf_parsing.py neue_datei.pdf`
+
+### Berichtsheft erzeugen
+
+```
 python sql_in_excel_export.py
 ```
-Das Skript sql_in_excel_export.py nutzt die im Projekt enthaltene berichtsheft_template.xlsx als Basis. Es erstellt Kopien dieser Vorlage und füllt sie automatisch mit den Daten aus der PostgreSQL-Datenbank (Lehrinhalte, Daten, Stunden) aus. So wird dein digitales Klassenbuch direkt in ein fertiges Excel-Berichtsheft umgewandelt.
 
-**Vollständige Pipeline**
-```
-source .venv/bin/activate
-python pdf_sort_by_date.py
-python klassenbuch_pdf_parsing.py
-python sql_in_excel_export.py
-```
+Das Skript holt alle Tage aus der Datenbank und legt den Ordner
+`berichtshefte` an. Darin liegt für jede Kalenderwoche eine Datei, zum
+Beispiel `berichtsheft_2026-KW27.xlsx`. Jede Datei ist eine Kopie von
+`berichtsheft_template.xlsx`, in die oben die Woche, das Lernfeld und der
+Dozent eingetragen sind und darunter für Montag bis Freitag die Inhalte der
+einzelnen Stunden.
 
-**Entwicklung.**
-Um die aktuellen Abhängigkeiten nach der Installation neuer Pakete zu speichern:
-```
-pip freeze > requirements.txt
-```
-Um die virtuelle Umgebung zu deaktivieren:
-```
-deactivate
-```
+Die Vorlage muss im gleichen Ordner liegen wie das Skript. Wer ein anderes
+Layout braucht, kann die Vorlage in Excel ändern, solange die Zeilen für
+die Wochentage an der gleichen Stelle bleiben.
 
+## Wenn etwas nicht geht
 
+`Invalid hex value` beim Start: In der `config.toml` steht ein Windows-Pfad
+in doppelten Anführungszeichen. Einfache nehmen.
 
+`Titel / Lernfeld not found in PDF header`: Die Titelzeile der PDF sieht
+anders aus als bei den bisherigen. Das ist mir schon zweimal passiert,
+einmal ohne Datum im Titel und einmal mit Doppelpunkt hinter dem Lernfeld.
+Beides ist inzwischen eingebaut. Bei einem neuen Fall muss das Muster
+`TITEL_RE` im Parsing-Skript angepasst werden.
 
+`Nothing to do`: In der `config.toml` ist kein PDF-Ordner eingetragen, oder
+der Eintrag steht nicht unter `[pdfs]`.
 
+`permission denied for table ...`: Der Datenbank-Benutzer darf nicht in die
+Tabellen schreiben. Das Skript kann die Rechte selbst vergeben, wenn man es
+als Administrator der Datenbank startet:
+`python klassenbuch_pdf_parsing.py --db-user postgres --fix-permissions --grant-to meinbenutzer`
 
+Alle weiteren Optionen zeigt `python klassenbuch_pdf_parsing.py --help`.
 
+## Die Dateien
 
+- `klassenbuch_pdf_parsing.py` liest die PDFs und schreibt in die Datenbank.
+- `sql_in_excel_export.py` erzeugt die Excel-Dateien aus der Datenbank.
+- `pdf_sort_by_date.py` benennt die PDFs nach Datum um.
+- `config.toml` enthält die Einstellungen.
+- `init_db.sql.txt` enthält die Befehle für die Tabellen.
+- `berichtsheft_template.xlsx` ist die leere Vorlage.
