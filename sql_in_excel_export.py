@@ -315,7 +315,7 @@ def _fill_sheet(ws, week_lerntage, kw_number, kw_year, report_nr) -> None:
         days=-jan4.weekday()
     )
     week_fri = week_mon + timedelta(days=4)
-    date_range = f"{week_mon.strftime('%d.%m.')} \u2013 {week_fri.strftime('%d.%m.%Y')}"
+    date_range = f"{week_mon.strftime('%d.%m.%Y')} \u2013 {week_fri.strftime('%d.%m.%Y')}"
 
     # H1 (merged H:J): date range on line 1, LF title on line 2
     lf_part  = f"\n{lf_sample.lernfeld_id} – {lf_sample.titel}" if lf_sample else ""
