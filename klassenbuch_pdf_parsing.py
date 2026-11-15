@@ -87,7 +87,7 @@ def sql_escape(text: str) -> str:
 
 DATUM_RE = re.compile(r"Datum:\s*(\d{2}\.\d{2}\.\d{4})")
 TITEL_RE = re.compile(
-    r"Titel:\s*(LF[-\w]*)\s+(.+?)"
+    r"Titel:\s*(LF[-\w]*):?\s+(.+?)"
     r"(?:\s+(\d{2}\.\d{2}\.\d{4})-(\d{2}\.\d{2}\.\d{4})?)?"
     r"\s*$",
     re.MULTILINE,
